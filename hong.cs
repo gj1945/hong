@@ -78,6 +78,7 @@ public class MouseMacroForm : Form
         });
     }
 
+    string configPath = "";
     public MouseMacroForm()
     {
         this.Load += async (sender, args) => await InitializeAsync();
@@ -97,10 +98,137 @@ public class MouseMacroForm : Form
         menuStrip.BackColor = Color.White;
         this.Controls.Add(menuStrip);
 
+
+        // 添加一个下拉菜单 名字是文件 下拉选中正在操作的文件 ，文件目录从 config/目录下去读 .json文件
+        var fileMenuItem = new ToolStripMenuItem("文件");
+        menuStrip.Items.Add(fileMenuItem);
+
+        // 读取config目录下的所有json文件
+        string[] files = Directory.GetFiles("config", "*.json");
+
+        var newfile = new ToolStripMenuItem("新文件");
+        newfile.Click += (object sender, EventArgs e) =>
+        {
+            // 弹窗输入文件名 
+            string filename = Interaction.InputBox("请输入文件名", "新建文件");
+            if (filename == "")
+            {
+                MessageBox.Show("请输入文件名");
+                return;
+            }
+
+            // 检测重复
+            if (File.Exists("config/" + filename + ".json"))
+            {
+                MessageBox.Show("文件已存在");
+                return;
+            }
+
+            configPath = "config/" + filename + ".json";
+
+            // 创建新文件
+            System.IO.File.WriteAllText(configPath, "[]");
+            loadconfig();
+            addhong(null, null);
+            saveconfig();
+        };
+        fileMenuItem.DropDownItems.Add(newfile);
+
+        foreach (string file in files)
+        {
+            var menuItem = new ToolStripMenuItem(Path.GetFileNameWithoutExtension(file));
+            menuItem.Click += (object sender, EventArgs e) =>
+            {
+                configPath = "config/" + menuItem.Text + ".json";;
+                loadconfig();
+                // 其他的文件取消选中
+                foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+                {
+                    item.Checked = false;
+                }
+
+                menuItem.Checked = true;
+            };
+            fileMenuItem.DropDownItems.Add(menuItem);
+
+            // 选中时间最新的文件
+            if (configPath == "" || File.GetLastWriteTime(file) > File.GetLastWriteTime(configPath))
+            {
+                configPath = file;
+            }
+        }
+
+        // 显示当前选中的文件
+        foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+        {
+            if (item.Text == Path.GetFileNameWithoutExtension(configPath))
+            {
+                item.Checked = true;
+            }
+        }
+
         // 添加新增按钮
         var addMenuItem = new ToolStripMenuItem("新增");
         addMenuItem.Click += addhong;
+
         menuStrip.Items.Add(addMenuItem);
+
+        // 保存按钮
+        var saveMenuItem = new ToolStripMenuItem("保存");
+        saveMenuItem.Click += (object sender, EventArgs e) =>
+        {
+            saveconfig();
+
+            // 按钮名称变为已保存 1s后恢复
+            saveMenuItem.Text = "已保存";
+            // 颜色red
+            saveMenuItem.ForeColor = Color.Red;
+            Task.Delay(700).ContinueWith(t => {
+                saveMenuItem.Text = "保存";
+                saveMenuItem.ForeColor = Color.Black;
+            });
+        };
+        menuStrip.Items.Add(saveMenuItem);
+
+        // 重命名
+        var renameMenuItem = new ToolStripMenuItem("重命名");
+        renameMenuItem.Click += (object sender, EventArgs e) =>
+        {
+            string oldname = Path.GetFileNameWithoutExtension(configPath);
+            if (configPath == "")
+            {
+                MessageBox.Show("请选择文件");
+                return;
+            }
+
+            string filename = Interaction.InputBox("请输入文件名", "重命名", Path.GetFileNameWithoutExtension(configPath));
+            if (filename == "")
+            {
+                MessageBox.Show("请输入文件名");
+                return;
+            }
+
+            // 检测重复
+            if (File.Exists("config/" + filename + ".json"))
+            {
+                MessageBox.Show("文件已存在");
+                return;
+            }
+
+            File.Move(configPath, "config/" + filename + ".json");
+            configPath = "config/" + filename + ".json";
+            loadconfig();
+
+            // 更新文件名
+            foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+            {
+                if (item.Text == oldname)
+                {
+                    item.Text = filename;
+                }
+            }
+        };
+        menuStrip.Items.Add(renameMenuItem);
 
         this.Text = "鼠标宏";
         this.Size = new Size(300, 160);
@@ -411,6 +539,8 @@ public class MouseMacroForm : Form
             // 重新设置窗口大小
             this.Size = new Size(this.Width, 160 + (TableLayoutPanelnum - 1) * 90);
             menuHeight = y;
+
+            saveconfig();
         };
 
         // 添加到TableLayoutPanel
@@ -532,6 +662,10 @@ public class MouseMacroForm : Form
                 statusLabel.ForeColor = Color.Green;
                 updateThreadDict();
             }
+        }
+        if (!(sender is JsonObject))
+        {
+            saveconfig();
         }
     }
 
@@ -1054,6 +1188,13 @@ public class MouseMacroForm : Form
         netdll.kmNet_unmask_all();
 
         trayIcon.Visible = false; // Hide tray icon before exit.
+
+        saveconfig();
+        Application.Exit();
+    }
+
+    private void saveconfig()
+    {
         // 退出前保存当前配置 将每组宏的配置保存到json文件
         JsonArray jsonArray = new JsonArray();
         foreach (Control control in this.Controls)
@@ -1075,14 +1216,36 @@ public class MouseMacroForm : Form
             }
         }
         string jsonString = jsonArray.ToString();
-        System.IO.File.WriteAllText("config.json", jsonString);
+        System.IO.File.WriteAllText(configPath, jsonString);
+    }
 
-        Application.Exit();
+    private void Clear()
+    {
+        List<Control> controlsToRemove = new List<Control>();
+
+        foreach (Control control in this.Controls)
+        {
+            if (control is TableLayoutPanel)
+            {
+                controlsToRemove.Add(control);
+            }
+        }
+
+        foreach (Control control in controlsToRemove)
+        {
+            this.Controls.Remove(control);
+            control.Dispose();
+        }
     }
 
     private void loadconfig()
     {
-        string jsonString = System.IO.File.ReadAllText("config.json");
+        menuHeight = 0;
+        // 清空
+        Clear();
+        // 停止所有线程
+        updateThreadDict();
+        string jsonString = System.IO.File.ReadAllText(configPath);
         JsonArray jsonArray = (JsonArray)JsonArray.Parse(jsonString);
         foreach (JsonObject jsonObject in jsonArray)
         {
