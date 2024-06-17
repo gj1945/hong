@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="config\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="*.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Include="*.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
