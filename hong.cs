@@ -42,11 +42,6 @@ public class MouseMacroForm : Form
 
     private async Task InitializeAsync()
     {
-        netdll.kmNet_init("192.168.2.188", "12994", "73EFE04E");
-        netdll.kmNet_unmask_all();
-
-        netdll.kmNet_monitor(10086);
-
         await Task.Run(() =>
         {
             while (true)
@@ -81,6 +76,10 @@ public class MouseMacroForm : Form
     string configPath = "";
     public MouseMacroForm()
     {
+        netdll.kmNet_init("192.168.2.188", "12994", "73EFE04E");
+        netdll.kmNet_unmask_all();
+        netdll.kmNet_monitor(10086);
+
         this.Load += async (sender, args) => await InitializeAsync();
         this.Load += async (sender, args) =>
         {
@@ -109,6 +108,8 @@ public class MouseMacroForm : Form
         var newfile = new ToolStripMenuItem("新文件");
         newfile.Click += (object sender, EventArgs e) =>
         {
+            netdll.kmNet_mouse_all(0, 0, 0, 0);
+            netdll.kmNet_unmask_all();
             // 弹窗输入文件名 
             string filename = Interaction.InputBox("请输入文件名", "新建文件");
             if (filename == "")
@@ -139,7 +140,9 @@ public class MouseMacroForm : Form
             var menuItem = new ToolStripMenuItem(Path.GetFileNameWithoutExtension(file));
             menuItem.Click += (object sender, EventArgs e) =>
             {
-                configPath = "config/" + menuItem.Text + ".json";;
+                netdll.kmNet_mouse_all(0, 0, 0, 0);
+                netdll.kmNet_unmask_all();
+                configPath = "config/" + menuItem.Text + ".json"; ;
                 loadconfig();
                 // 其他的文件取消选中
                 foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
@@ -183,7 +186,8 @@ public class MouseMacroForm : Form
             saveMenuItem.Text = "已保存";
             // 颜色red
             saveMenuItem.ForeColor = Color.Red;
-            Task.Delay(700).ContinueWith(t => {
+            Task.Delay(700).ContinueWith(t =>
+            {
                 saveMenuItem.Text = "保存";
                 saveMenuItem.ForeColor = Color.Black;
             });
@@ -667,6 +671,7 @@ public class MouseMacroForm : Form
         {
             saveconfig();
         }
+
     }
 
     Dictionary<string, Thread> threadDict = new Dictionary<string, Thread>();
@@ -840,10 +845,45 @@ public class MouseMacroForm : Form
 
                 if (GetKeyName((KeyboardButton)netdll.kmNet_monitor_keyboard_code()) == item.Key)
                 {
-                    // if (!threadDict[item.Key].IsAlive)
-                    // {
-                    //     threadDict[item.Key].Start();
-                    // }
+                    if (!threadDict[item.Key].IsAlive)
+                    {
+                        if (!hold)
+                        {
+                            updateThreadDict();
+                        }
+                        threadDict[item.Key].Start();
+                    }
+
+                    if (repeatDict.ContainsKey(item.Key) && repeatDict[item.Key] == 1)
+                    {
+                        repeatDict[item.Key] = 2;
+                    }
+                }
+
+                // 键盘弹起
+                if (threadDict[item.Key].IsAlive)
+                {
+                    
+                    if (netdll.kmNet_monitor_keyboard(GetKey(item.Key)) == 0)
+                    {
+                        if (hold)
+                        {
+                            threadDict[item.Key].Interrupt();
+                            updateThreadDict();
+                        }
+
+                        nohongrun = true;
+
+                        if (repeatDict.ContainsKey(item.Key) && repeatDict[item.Key] == 0)
+                        {
+                            repeatDict[item.Key] = 1;
+                        }
+
+                        if (repeatDict.ContainsKey(item.Key) && repeatDict[item.Key] == 2)
+                        {
+                            repeatDict[item.Key] = 3;
+                        }
+                    }
                 }
             }
 
@@ -1101,7 +1141,9 @@ public class MouseMacroForm : Form
                         else
                         if (hong.StartsWith("["))
                         {
-                            if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue(hong[1], out var result))
+                            string Key = hong.Substring(1, hong.Length - 2);
+
+                            if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue(Key, out var result))
                             {
                                 var (button, modifiers) = result;
                                 if (modifiers == KeyboardModifiers.LeftShift)
@@ -1112,10 +1154,30 @@ public class MouseMacroForm : Form
                                 }
                                 else
                                 {
-                                    netdll.kmNet_keydown((int)button);
-                                    netdll.kmNet_keyup((int)button);
+                                    netdll.kmNet_keypress((int)button);
                                 }
                             }
+                            else
+                            // 转换为小写
+                            if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue(Key.ToLower(), out var result2))
+                            {
+                                var (button, modifiers) = result2;
+                                netdll.kmNet_keydown((int)button);
+                                netdll.kmNet_keyup((int)button);
+                            }
+                            else
+                            {
+                                // 如果没有找到键值，直接发送字符串
+                                foreach (char c in Key)
+                                {
+                                    if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue("" + c, out var result3))
+                                    {
+                                        var (button, modifiers) = result3;
+                                        netdll.kmNet_keypress((int)button, 1);
+                                    }
+                                }
+                            }
+
                         }
                     }
 
@@ -1253,11 +1315,22 @@ public class MouseMacroForm : Form
         }
     }
 
+    static Mutex mutex = new Mutex(true, "{8F6F0AC4-B9A1-45fd-A8CF-72F04E6BDE8F}");
+
     [STAThread]
     static void Main()
     {
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new MouseMacroForm());
+        if (mutex.WaitOne(TimeSpan.Zero, true))
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new MouseMacroForm());
+            mutex.ReleaseMutex();
+        }
+        else
+        {
+            // 发送消息给已经运行的应用程序实例，然后退出
+            MessageBox.Show("程序已经在运行了");
+        }
     }
 }

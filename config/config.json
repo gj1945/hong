@@ -1,7 +1,7 @@
 [
   {
-    "triggerKey": "\u4FA7\u952E1",
-    "hong": "[x]{0.1}",
+    "triggerKey": "KeyKeypadEnter",
+    "hong": "[guojing]",
     "status": "\u8FD0\u884C\u4E2D",
     "hold": false
   }
