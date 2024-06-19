@@ -75,6 +75,9 @@ public class MouseMacroForm : Form
 
 
     string configPath = "";
+    string bindPath = "config/bind.json";
+
+    ToolStripMenuItem fileMenuItem = null;
     public MouseMacroForm()
     {
         // 判断是否有config目录 没有则创建
@@ -109,7 +112,7 @@ public class MouseMacroForm : Form
 
 
         // 添加一个下拉菜单 名字是文件 下拉选中正在操作的文件 ，文件目录从 config/目录下去读 .json文件
-        var fileMenuItem = new ToolStripMenuItem("文件");
+        fileMenuItem = new ToolStripMenuItem("文件");
         menuStrip.Items.Add(fileMenuItem);
 
         // 读取config目录下的所有json文件
@@ -273,20 +276,38 @@ public class MouseMacroForm : Form
         var bindMenuItem = new ToolStripMenuItem("绑定");
         bindMenuItem.Click += (object sender, EventArgs e) =>
         {
+            // 读取bind.json文件
+            string bindJson = System.IO.File.ReadAllText(bindPath);
+            JsonObject bindJsonObject = (JsonObject)JsonObject.Parse(bindJson);
+
+            string oldname = "";
+            foreach (var item in bindJsonObject)
+            {
+                string hong = item.Key;
+                string needprocess = (string)item.Value;
+                if (hong == Path.GetFileNameWithoutExtension(configPath))
+                {
+                    oldname = needprocess;
+                    break;
+                }
+            }
             // 弹出下拉框选择exe
-            string jincheng = Interaction.InputBox("请输入进程名，不带.exe后缀", "绑定进程名");
+            string jincheng = Interaction.InputBox("请输入进程名，不带.exe后缀", "绑定进程名", oldname);
+
+            if (jincheng == "")
+            {
+                MessageBox.Show("请输入进程名");
+                return;
+            }
 
             // 读取congig/bind.json文件 没有则创建
-            string bindPath = "config/bind.json";
+
             if (!File.Exists(bindPath))
             {
                 System.IO.File.WriteAllText(bindPath, "{}");
             }
 
             // 读取bind.json文件
-            string bindJson = System.IO.File.ReadAllText(bindPath);
-            JsonObject bindJsonObject = (JsonObject)JsonObject.Parse(bindJson);
-
             bindJsonObject[Path.GetFileNameWithoutExtension(configPath)] = jincheng;
             // 写入bind.json文件
             System.IO.File.WriteAllText(bindPath, bindJsonObject.ToString());
@@ -1407,6 +1428,18 @@ public class MouseMacroForm : Form
         {
             configPath = newpath;
             loadconfig();
+
+            foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+            {
+                if (item.Text == Path.GetFileNameWithoutExtension(configPath))
+                {
+                    item.Checked = true;
+                }
+                else
+                {
+                    item.Checked = false;
+                }
+            }
         }
     }
 
