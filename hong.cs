@@ -73,12 +73,22 @@ public class MouseMacroForm : Form
         });
     }
 
+
     string configPath = "";
     public MouseMacroForm()
     {
+        // 判断是否有config目录 没有则创建
+        if (!Directory.Exists("config"))
+        {
+            Directory.CreateDirectory("config");
+        }
+
         netdll.kmNet_init("192.168.2.188", "12994", "73EFE04E");
         netdll.kmNet_unmask_all();
         netdll.kmNet_monitor(10086);
+
+        _delegate = new WinEventDelegate(WinEventProc);
+        _winEventHook = SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, _delegate, 0, 0, 0);
 
         this.Load += async (sender, args) => await InitializeAsync();
         this.Load += async (sender, args) =>
@@ -104,6 +114,8 @@ public class MouseMacroForm : Form
 
         // 读取config目录下的所有json文件
         string[] files = Directory.GetFiles("config", "*.json");
+        // 排除bind.json文件
+        files = files.Where(file => Path.GetFileName(file) != "bind.json").ToArray();
 
         var newfile = new ToolStripMenuItem("新文件");
         newfile.Click += (object sender, EventArgs e) =>
@@ -132,6 +144,29 @@ public class MouseMacroForm : Form
             loadconfig();
             addhong(null, null);
             saveconfig();
+
+            var menuItem = new ToolStripMenuItem(filename);
+            menuItem.Click += (object sender, EventArgs e) =>
+            {
+                netdll.kmNet_mouse_all(0, 0, 0, 0);
+                netdll.kmNet_unmask_all();
+                configPath = "config/" + menuItem.Text + ".json"; ;
+                loadconfig();
+                // 其他的文件取消选中
+                foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+                {
+                    item.Checked = false;
+                }
+
+                menuItem.Checked = true;
+            };
+            fileMenuItem.DropDownItems.Add(menuItem);
+
+            foreach (ToolStripMenuItem item in fileMenuItem.DropDownItems)
+            {
+                item.Checked = false;
+            }
+            menuItem.Checked = true;
         };
         fileMenuItem.DropDownItems.Add(newfile);
 
@@ -233,6 +268,30 @@ public class MouseMacroForm : Form
             }
         };
         menuStrip.Items.Add(renameMenuItem);
+
+        // 绑定exe 当指定exe运行时，执行切换到指定文件
+        var bindMenuItem = new ToolStripMenuItem("绑定");
+        bindMenuItem.Click += (object sender, EventArgs e) =>
+        {
+            // 弹出下拉框选择exe
+            string jincheng = Interaction.InputBox("请输入进程名，不带.exe后缀", "绑定进程名");
+
+            // 读取congig/bind.json文件 没有则创建
+            string bindPath = "config/bind.json";
+            if (!File.Exists(bindPath))
+            {
+                System.IO.File.WriteAllText(bindPath, "{}");
+            }
+
+            // 读取bind.json文件
+            string bindJson = System.IO.File.ReadAllText(bindPath);
+            JsonObject bindJsonObject = (JsonObject)JsonObject.Parse(bindJson);
+
+            bindJsonObject[Path.GetFileNameWithoutExtension(configPath)] = jincheng;
+            // 写入bind.json文件
+            System.IO.File.WriteAllText(bindPath, bindJsonObject.ToString());
+        };
+        menuStrip.Items.Add(bindMenuItem);
 
         this.Text = "鼠标宏";
         this.Size = new Size(300, 160);
@@ -439,6 +498,9 @@ public class MouseMacroForm : Form
         Button listenButton = new Button();
         listenButton.Text = "监听";
         listenButton.Anchor = AnchorStyles.None;
+
+        // 添加一个勾选框 按住执行
+        CheckBox holdCheckBox = new CheckBox();
         // 点击后监听鼠标和键盘的输入写入triggerKeyTextBox
         listenButton.Click += (object sender, EventArgs e) =>
         {
@@ -492,6 +554,8 @@ public class MouseMacroForm : Form
                         startButton.Enabled = true;
                         // 移除焦点
                         tableLayoutPanel.Focus();
+
+                        starthong(holdCheckBox.Checked);
                     }
                 });
             }
@@ -570,8 +634,7 @@ public class MouseMacroForm : Form
         statusLabel.ForeColor = Color.Green;
 
 
-        // 添加一个勾选框 按住执行
-        CheckBox holdCheckBox = new CheckBox();
+
         holdCheckBox.Text = "松开即停";
         holdCheckBox.AutoSize = true;
         holdCheckBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
@@ -863,7 +926,7 @@ public class MouseMacroForm : Form
                 // 键盘弹起
                 if (threadDict[item.Key].IsAlive)
                 {
-                    
+
                     if (netdll.kmNet_monitor_keyboard(GetKey(item.Key)) == 0)
                     {
                         if (hold)
@@ -1075,6 +1138,7 @@ public class MouseMacroForm : Form
                             {
                                 case "[-l]":
                                     netdll.kmNet_mouse_left(1);
+                                    Thread.Sleep(20);
                                     netdll.kmNet_mouse_left(0);
                                     break;
                                 case "[-l1]":
@@ -1087,6 +1151,7 @@ public class MouseMacroForm : Form
                                     break;
                                 case "[-r]":
                                     netdll.kmNet_mouse_right(1);
+                                    Thread.Sleep(20);
                                     netdll.kmNet_mouse_right(0);
                                     break;
                                 case "[-r1]":
@@ -1107,6 +1172,7 @@ public class MouseMacroForm : Form
                                     break;
                                 case "[-1]":
                                     netdll.kmNet_mouse_side1(1);
+                                    Thread.Sleep(20);
                                     netdll.kmNet_mouse_side1(0);
                                     break;
                                 case "[-11]":
@@ -1117,6 +1183,7 @@ public class MouseMacroForm : Form
                                     break;
                                 case "[-2]":
                                     netdll.kmNet_mouse_side2(1);
+                                    Thread.Sleep(20);
                                     netdll.kmNet_mouse_side2(0);
                                     break;
                                 case "[-21]":
@@ -1135,8 +1202,8 @@ public class MouseMacroForm : Form
                         }
                         else if (hong.StartsWith("{"))
                         {
-                            double delay = double.Parse(hong.Substring(1, hong.Length - 2));
-                            Sleep((int)(delay * 1000));
+                            int delay = int.Parse(hong.Substring(1, hong.Length - 2));
+                            Thread.Sleep(delay);
                         }
                         else
                         if (hong.StartsWith("["))
@@ -1154,6 +1221,7 @@ public class MouseMacroForm : Form
                                 }
                                 else
                                 {
+                                    // log(button);
                                     netdll.kmNet_keypress((int)button);
                                 }
                             }
@@ -1162,8 +1230,8 @@ public class MouseMacroForm : Form
                             if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue(Key.ToLower(), out var result2))
                             {
                                 var (button, modifiers) = result2;
-                                netdll.kmNet_keydown((int)button);
-                                netdll.kmNet_keyup((int)button);
+                                // log(button);
+                                netdll.kmNet_keypress((int)button);
                             }
                             else
                             {
@@ -1173,7 +1241,8 @@ public class MouseMacroForm : Form
                                     if (KeyboardButtonMap.CharToKeyboardButton.TryGetValue("" + c, out var result3))
                                     {
                                         var (button, modifiers) = result3;
-                                        netdll.kmNet_keypress((int)button, 1);
+                                        // log(button);
+                                        netdll.kmNet_keypress((int)button);
                                     }
                                 }
                             }
@@ -1307,12 +1376,75 @@ public class MouseMacroForm : Form
         Clear();
         // 停止所有线程
         updateThreadDict();
-        string jsonString = System.IO.File.ReadAllText(configPath);
-        JsonArray jsonArray = (JsonArray)JsonArray.Parse(jsonString);
-        foreach (JsonObject jsonObject in jsonArray)
+
+        if (System.IO.File.Exists(configPath))
         {
-            addhong(jsonObject, null);
+            string jsonString = System.IO.File.ReadAllText(configPath);
+            JsonArray jsonArray = (JsonArray)JsonArray.Parse(jsonString);
+            foreach (JsonObject jsonObject in jsonArray)
+            {
+                addhong(jsonObject, null);
+            }
         }
+    }
+
+    private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    private static IntPtr _winEventHook;
+    private static WinEventDelegate _delegate;
+
+    private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+    {
+        // Check if the foreground window has changed
+        string newpath = cheackProcess();
+        if (newpath != "")
+        {
+            configPath = newpath;
+            loadconfig();
+        }
+    }
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    private string cheackProcess()
+    {
+        // 去读config/bind.json
+        string bindPath = "config/bind.json";
+        if (File.Exists(bindPath))
+        {
+            // 获取当前前台窗口的进程名
+            IntPtr hwnd = GetForegroundWindow();
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            Process process = Process.GetProcessById((int)pid);
+            string processName = process.ProcessName;
+            string bindJsonString = File.ReadAllText(bindPath);
+            JsonObject bindJsonObject = (JsonObject)JsonObject.Parse(bindJsonString);
+
+            foreach (var item in bindJsonObject)
+            {
+                string hong = item.Key;
+                string needprocess = (string)item.Value;
+                if (needprocess == processName)
+                {
+                    return "config/" + hong + ".json";
+                    break;
+                }
+            }
+        }
+
+        return "";
     }
 
     static Mutex mutex = new Mutex(true, "{8F6F0AC4-B9A1-45fd-A8CF-72F04E6BDE8F}");
