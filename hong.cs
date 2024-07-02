@@ -59,18 +59,26 @@ public class MouseMacroForm : Form
 
     private async Task loadimage()
     {
-        await Task.Run(() =>
-        {
-            while (true)
-            {
-                if (nohongrun)
-                {
-                    netdll.kmNet_lcd_picture(GenerateImage());
-                    Thread.Sleep(60000);
-                }
-                Thread.Sleep(1);
-            }
-        });
+        // await Task.Run(() =>
+        // {
+        //     while (true)
+        //     {
+        //         if (nohongrun)
+        //         {
+        //             netdll.kmNet_lcd_picture(GenerateImage());
+        //             Thread.Sleep(60000);
+        //         }
+        //         Thread.Sleep(1);
+        //     }
+        // });
+        // await Task.Run(() =>
+        // {
+        //     while (true)
+        //     {
+        //         netdll.kmNet_lcd_picture(CaptureWindow());
+        //         Thread.Sleep(1000);
+        //     }
+        // });
     }
 
 
@@ -94,16 +102,16 @@ public class MouseMacroForm : Form
         _winEventHook = SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, _delegate, 0, 0, 0);
 
         this.Load += async (sender, args) => await InitializeAsync();
-        this.Load += async (sender, args) =>
-        {
-            netdll.kmNet_lcd_picture(GenerateImage());
-            // 计算到下一个整数秒的时间差
-            var delay = 60000 - DateTime.Now.Second * 1000 - DateTime.Now.Millisecond;
-            // 等待到下一个整数秒
-            await Task.Delay(delay);
-            // 启动 loadimage
-            await loadimage();
-        };
+        // this.Load += async (sender, args) =>
+        // {
+        //     // 启动 loadimage
+        //     await loadimage();
+        //     netdll.kmNet_lcd_picture(GenerateImage());
+        //     // 计算到下一个整数秒的时间差
+        //     var delay = 60000 - DateTime.Now.Second * 1000 - DateTime.Now.Millisecond;
+        //     // 等待到下一个整数秒
+        //     await Task.Delay(delay);
+        // };
 
         // Create a MenuStrip for port selection.
         menuStrip = new MenuStrip();
@@ -123,6 +131,7 @@ public class MouseMacroForm : Form
         var newfile = new ToolStripMenuItem("新文件");
         newfile.Click += (object sender, EventArgs e) =>
         {
+            saveconfig();
             netdll.kmNet_mouse_all(0, 0, 0, 0);
             netdll.kmNet_unmask_all();
             // 弹窗输入文件名 
@@ -269,6 +278,22 @@ public class MouseMacroForm : Form
                     item.Text = filename;
                 }
             }
+
+            // 更新绑定对应的文件名
+            string bindJson = System.IO.File.ReadAllText(bindPath);
+            JsonObject bindJsonObject = (JsonObject)JsonObject.Parse(bindJson);
+            foreach (var item in bindJsonObject)
+            {
+                string hong = item.Key;
+                string needprocess = (string)item.Value;
+                if (hong == oldname)
+                {
+                    bindJsonObject.Remove(hong);
+                    bindJsonObject[filename] = needprocess;
+                    break;
+                }
+            }
+            System.IO.File.WriteAllText(bindPath, bindJsonObject.ToString());
         };
         menuStrip.Items.Add(renameMenuItem);
 
@@ -296,7 +321,6 @@ public class MouseMacroForm : Form
 
             if (jincheng == "")
             {
-                MessageBox.Show("请输入进程名");
                 return;
             }
 
@@ -325,7 +349,7 @@ public class MouseMacroForm : Form
         // 窗口居中
         this.StartPosition = FormStartPosition.CenterScreen;
 
-        // 窗口关闭时触发事件
+        // 窗口关闭时触发事件 最小化
         this.FormClosing += OnExit;
 
         this.loadconfig();
@@ -333,7 +357,7 @@ public class MouseMacroForm : Form
         // Create a simple tray menu with only one item.
         trayMenu = new ContextMenuStrip();
         var closeMenuItem = new ToolStripMenuItem("退出");
-        closeMenuItem.Click += OnExit;
+        closeMenuItem.Click += OnExitmenu;
         trayMenu.Items.Add(closeMenuItem);
 
         // Create a tray icon. 
@@ -346,7 +370,7 @@ public class MouseMacroForm : Form
         trayIcon.Visible = true; // Show tray icon at start.
 
         // Add double click event.
-        trayIcon.MouseClick += TrayIcon_MouseClick;
+        trayIcon.DoubleClick += TrayIcon_MouseClick;
     }
 
     DateTime lastQueryTime = DateTime.Now.AddMinutes(-15);
@@ -374,7 +398,6 @@ public class MouseMacroForm : Form
         // 获取当前的时间并转换为字符串
         string time = DateTime.Now.ToString("HH:mm");
 
-
         // 计算字符串的大小
         SizeF stringSize = graphics.MeasureString(time, font);
 
@@ -388,7 +411,6 @@ public class MouseMacroForm : Form
 
         Font font2 = new Font("Arial", 8);
         SolidBrush brush2 = new SolidBrush(Color.Yellow);
-
 
 
         // 查询天气温度 西安
@@ -470,6 +492,107 @@ public class MouseMacroForm : Form
 
         return newbmpbits;
     }
+
+    // 定义RECT结构体
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;        // x position of upper-left corner
+        public int Top;         // y position of upper-left corner
+        public int Right;       // x position of lower-right corner
+        public int Bottom;      // y position of lower-right corner
+
+        public int Width
+        {
+            get { return Right - Left; }
+        }
+
+        public int Height
+        {
+            get { return Bottom - Top; }
+        }
+    }
+
+    // 确保你的类中包含了对GetWindowRect的P/Invoke声明
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindowDC(IntPtr hWnd);
+
+    [DllImport("gdi32.dll", EntryPoint = "BitBlt")]
+    public static extern bool BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight, IntPtr hdcSrc, int nXSrc, int nYSrc, uint dwRop);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+    // 获取指定窗口的截图
+
+    public byte[] CaptureWindow()
+    {
+        // 根据指定进程获取窗口句柄
+        Process process = Process.GetProcessesByName("tdxw")[0];
+        IntPtr hWnd = process.MainWindowHandle;
+        // 获取窗口的大小和位置
+        RECT rect;
+        GetWindowRect(hWnd, out rect);
+
+        // 创建一个与窗口大小相同的 Bitmap 对象
+        Bitmap bitmap = new Bitmap(rect.Width, rect.Height, PixelFormat.Format16bppRgb565);
+
+        // 创建一个 Graphics 对象
+        Graphics graphics = Graphics.FromImage(bitmap);
+
+        // 获取窗口的设备上下文
+        IntPtr hdc = GetWindowDC(hWnd);
+
+        // 将窗口的图像复制到 Graphics 对象中
+        BitBlt(graphics.GetHdc(), 0, 0, rect.Width, rect.Height, hdc, 0, 0, 0x00CC0020);
+
+        // 释放设备上下文
+        ReleaseDC(hWnd, hdc);
+
+        // 释放 Graphics 对象
+        graphics.Dispose();
+
+
+        // 缩放到 160x128 的byte数组
+        Bitmap newbitmap = new Bitmap(160, 128, PixelFormat.Format16bppRgb565);
+
+        // 创建一个 Graphics 对象
+        Graphics newgraphics = Graphics.FromImage(newbitmap);
+
+        // 将窗口的图像复制到 Graphics 对象中
+        newgraphics.DrawImage(bitmap, 0, 0, 160, 128);
+
+        // 创建一个 byte[] 数组来存储像素数据
+        byte[] bmpbits = new byte[160 * 128 * 2];
+
+        // 锁定 Bitmap 的像素数据
+        BitmapData bitmapData = newbitmap.LockBits(new Rectangle(0, 0, newbitmap.Width, newbitmap.Height), ImageLockMode.ReadOnly, newbitmap.PixelFormat);
+
+        // 将 Bitmap 的像素数据复制到 byte[] 数组
+        System.Runtime.InteropServices.Marshal.Copy(bitmapData.Scan0, bmpbits, 0, bmpbits.Length);
+
+        // 解锁 Bitmap 的像素数据
+        newbitmap.UnlockBits(bitmapData);
+        newbitmap.Save("1.jpg", ImageFormat.Jpeg);
+
+        // 逆时针旋转90度
+        byte[] newbmpbits = new byte[128 * 160 * 2];
+        for (int i = 0; i < 128; i++)
+        {
+            for (int j = 0; j < 160; j++)
+            {
+                newbmpbits[(160 - j - 1) * 128 * 2 + i * 2] = bmpbits[i * 160 * 2 + j * 2];
+                newbmpbits[(160 - j - 1) * 128 * 2 + i * 2 + 1] = bmpbits[i * 160 * 2 + j * 2 + 1];
+            }
+        }
+
+        return newbmpbits;
+
+    }
+
 
     int menuHeight = 0;
     private void addhong(object sender, EventArgs e)
@@ -575,6 +698,7 @@ public class MouseMacroForm : Form
                         startButton.Enabled = true;
                         // 移除焦点
                         tableLayoutPanel.Focus();
+                        saveconfig();
 
                         starthong(holdCheckBox.Checked);
                     }
@@ -693,6 +817,7 @@ public class MouseMacroForm : Form
                 holdCheckBox.Enabled = false;
                 statusLabel.ForeColor = Color.Red;
                 // startButton.hook = starthong(triggerKeyTextBox.Text, hongTextBox.Text);
+                saveconfig();
                 starthong(holdCheckBox.Checked);
             }
             else
@@ -1308,10 +1433,12 @@ public class MouseMacroForm : Form
         }
     }
 
-    private void TrayIcon_MouseClick(object sender, MouseEventArgs e)
+    private void TrayIcon_MouseClick(object? sender, EventArgs e)
     {
         this.Show();
         this.WindowState = FormWindowState.Normal;
+        // 刷新窗口 重新载入配置
+        this.loadconfig();
     }
 
     protected override void OnResize(EventArgs e)
@@ -1331,7 +1458,19 @@ public class MouseMacroForm : Form
     }
 
     private bool isExiting = false;
-    private void OnExit(object sender, EventArgs e)
+    private void OnExit(object sender, FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            // 取消关闭窗口
+            e.Cancel = true;
+            // 隐藏窗口
+            this.Hide();
+            trayIcon.Visible = true; 
+        }
+    }
+
+    private void OnExitmenu(object sender, EventArgs e)
     {
         if (isExiting) return;
 
@@ -1392,11 +1531,24 @@ public class MouseMacroForm : Form
 
     private void loadconfig()
     {
+        // 解除鼠标屏蔽
+        netdll.kmNet_unmask_all();
+
         menuHeight = 0;
-        // 清空
+        // 清空列表
         Clear();
         // 停止所有线程
-        updateThreadDict();
+        foreach (var item in threadDict)
+        {
+            threadDict[item.Key].Interrupt();
+
+            // 解除键盘屏蔽
+            if (item.Key != "右键" && item.Key != "左键" && item.Key != "中键" && item.Key != "侧键1" && item.Key != "侧键2")
+            {
+                netdll.kmNet_unmask_keyboard((short)GetKeyValue(item.Key));
+            }
+        }
+        threadDict = new Dictionary<string, Thread>();
 
         if (System.IO.File.Exists(configPath))
         {

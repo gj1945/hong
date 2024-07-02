@@ -44,13 +44,13 @@ class netdll
     public static extern int kmNet_keyup(int vkey);
 
     [DllImport("kmNetLib.dll", EntryPoint = "kmNet_keypress")]
-    public static extern int kmNet_keypress(int vk_key, int ms = 20);
+    public static extern int kmNet_keypress(int vk_key, int ms = 50);
 
     [DllImport("kmNetLib.dll", EntryPoint = "kmNet_enc_keyup")]
     public static extern int kmNet_enc_keyup(int vkey);
 
     [DllImport("kmNetLib.dll", EntryPoint = "kmNet_enc_keypress")]
-    public static extern int kmNet_enc_keypress(int vk_key, int ms = 20);
+    public static extern int kmNet_enc_keypress(int vk_key, int ms = 50);
 
     // 带加密功能的函数。单机推荐使用，防止网络数据包抓包特征
     [DllImport("kmNetLib.dll", EntryPoint = "kmNet_enc_mouse_move")]
